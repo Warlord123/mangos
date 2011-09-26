@@ -1866,8 +1866,25 @@ void Aura::TriggerSpell()
                         break;
 //                    // Ice Tomb
 //                    case 70157: break;
-//                    // Mana Barrier
-//                    case 70842: break;
+                    case 70842:                             // Mana Barrier
+                    {
+                        if (!triggerTarget || triggerTarget->getPowerType() != POWER_MANA)
+                            return;
+
+                        int32 damage = triggerTarget->GetHealth() - triggerTarget->GetMaxHealth();
+                        if (damage >= 0)
+                            return;
+
+                        if (triggerTarget->GetPower(POWER_MANA) < -damage)
+                        {
+                            damage = -triggerTarget->GetPower(POWER_MANA);
+                            triggerTarget->RemoveAurasDueToSpell(auraId);
+                        }
+
+                        triggerTarget->DealHeal(triggerTarget, -damage, auraSpellInfo);
+                        triggerTarget->ModifyPower(POWER_MANA, damage);
+                        break;
+                    }
 //                    // Summon Timer: Suppresser
 //                    case 70912: break;
 //                    // Aura of Darkness
@@ -4945,7 +4962,7 @@ void Aura::HandleAuraModStun(bool apply, bool Real)
             {
                 GameObject* pObj = new GameObject;
                 if (pObj->Create(target->GetMap()->GenerateLocalLowGuid(HIGHGUID_GAMEOBJECT), 185584, target->GetMap(), target->GetPhaseMask(),
-                target->GetPositionX(), target->GetPositionY(), target->GetPositionZ(), target->GetOrientation(), 0.0f, 0.0f, 0.0f, 0.0f, GO_ANIMPROGRESS_DEFAULT, GO_STATE_READY))
+                    target->GetPositionX(), target->GetPositionY(), target->GetPositionZ(), target->GetOrientation()))
                 {
                     pObj->SetRespawnTime(GetAuraDuration()/IN_MILLISECONDS);
                     pObj->SetSpellId(GetId());
