@@ -4396,12 +4396,12 @@ bool Unit::AddSpellAuraHolder(SpellAuraHolderPtr holder)
         return false;
     }
 
+    std::set<SpellAuraHolderPtr> holdersToRemove;
     // passive and persistent auras can stack with themselves any number of times
     if ((!holder->IsPassive() && !holder->IsPersistent()) || holder->IsAreaAura())
     {
-        SpellAuraHolderMap tmpMap = GetSpellAuraHolderMap();
-        SpellAuraHolderBounds spair = tmpMap.equal_range(aurSpellInfo->Id);
-
+        MAPLOCK_READ(this,MAP_LOCK_TYPE_AURAS);
+        SpellAuraHolderBounds spair = GetSpellAuraHolderBounds(aurSpellInfo->Id);
         // take out same spell
         for (SpellAuraHolderMap::iterator iter = spair.first; iter != spair.second; ++iter)
         {
@@ -4453,7 +4453,7 @@ bool Unit::AddSpellAuraHolder(SpellAuraHolderPtr holder)
                 // only one holder per caster on same target
                 if (foundHolder->GetCasterGuid() == holder->GetCasterGuid())
                 {
-                    RemoveSpellAuraHolder(foundHolder, AURA_REMOVE_BY_STACK);
+                    holdersToRemove.insert(foundHolder);
                     break;
                 }
             }
@@ -4461,8 +4461,14 @@ bool Unit::AddSpellAuraHolder(SpellAuraHolderPtr holder)
             // stacking of holders from different casters
             // some holders stack, but their auras dont (i.e. only strongest aura effect works)
             if (!sSpellMgr.IsStackableSpellAuraHolder(aurSpellInfo))
-                RemoveSpellAuraHolder(foundHolder,AURA_REMOVE_BY_STACK);
+                holdersToRemove.insert(foundHolder);
         }
+    }
+
+    if (!holdersToRemove.empty())
+    {
+        for(std::set<SpellAuraHolderPtr>::const_iterator i = holdersToRemove.begin(); i != holdersToRemove.end(); ++i)
+            RemoveSpellAuraHolder((*i),AURA_REMOVE_BY_STACK);
     }
 
     // passive auras not stackable with other ranks
