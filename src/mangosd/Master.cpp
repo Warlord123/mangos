@@ -31,6 +31,7 @@
 #include "WorldRunnable.h"
 #include "World.h"
 #include "Log.h"
+#include "MapManager.h"
 #include "Timer.h"
 #include "Policies/SingletonImp.h"
 #include "SystemConfig.h"
@@ -47,6 +48,7 @@
 #include <ace/OS_NS_signal.h>
 #include <ace/TP_Reactor.h>
 #include <ace/Dev_Poll_Reactor.h>
+#include <ace/Stack_Trace.h>
 
 #ifdef WIN32
 #include "ServiceWin32.h"
@@ -77,6 +79,8 @@ public:
         while(!World::IsStopped())
         {
             ACE_Based::Thread::Sleep(1000);
+
+            sMapMgr.GetMapUpdater()->FreezeDetect();
 
             uint32 curtime = WorldTimer::getMSTime();
             //DEBUG_LOG("anti-freeze: time=%u, counters=[%u; %u]",curtime,Master::m_masterLoopCounter,World::m_worldLoopCounter);
@@ -556,34 +560,65 @@ void Master::_OnSignal(int s)
     {
         case SIGINT:
             World::StopNow(RESTART_EXIT_CODE);
+            signal(s, _OnSignal);
             break;
         case SIGTERM:
         #ifdef _WIN32
         case SIGBREAK:
         #endif
             World::StopNow(SHUTDOWN_EXIT_CODE);
+            signal(s, _OnSignal);
+            break;
+        case SIGSEGV:
+        case SIGABRT:
+        case SIGFPE:
+        case SIGUSR1:
+            {
+                ACE_thread_t const threadId = ACE_OS::thr_self();
+
+                sLog.outError("Signal Handler: Signal %.2u received from thread "I64FMT".\r\n",s,threadId);
+                if (MapID const* mapPair = sMapMgr.GetMapUpdater()->GetMapPairByThreadId(threadId))
+                {
+                    sLog.outError("Signal Handler: Thread "I64FMT" is update map %u instance %u",threadId,mapPair->nMapId, mapPair->nInstanceId);
+                }
+
+                ACE_Stack_Trace StackTrace;
+                sLog.outError("\r\n************ BackTrace *************\r\n%s\r\n***********************************\r\n",StackTrace.c_str());
+
+                signal(s, SIG_DFL);
+                kill(getpid(), s);
+            }
+            break;
+        default:
+            signal(s, SIG_DFL);
             break;
     }
-
-    signal(s, _OnSignal);
 }
 
 /// Define hook '_OnSignal' for all termination signals
 void Master::_HookSignals()
 {
-    signal(SIGINT, _OnSignal);
-    signal(SIGTERM, _OnSignal);
+    signal(SIGINT,   _OnSignal);
+    signal(SIGTERM,  _OnSignal);
     #ifdef _WIN32
     signal(SIGBREAK, _OnSignal);
     #endif
+    signal(SIGSEGV,  _OnSignal);
+    signal(SIGABRT,  _OnSignal);
+    signal(SIGFPE ,  _OnSignal);
+    signal(SIGUSR1,  _OnSignal);
 }
 
 /// Unhook the signals before leaving
 void Master::_UnhookSignals()
 {
-    signal(SIGINT, 0);
-    signal(SIGTERM, 0);
+    signal(SIGINT,   SIG_DFL);
+    signal(SIGTERM,  SIG_DFL);
     #ifdef _WIN32
-    signal(SIGBREAK, 0);
+    signal(SIGBREAK, SIG_DFL);
     #endif
+    signal(SIGSEGV,  SIG_DFL);
+    signal(SIGABRT,  SIG_DFL);
+    signal(SIGFPE ,  SIG_DFL);
+    signal(SIGUSR1,  SIG_DFL);
 }

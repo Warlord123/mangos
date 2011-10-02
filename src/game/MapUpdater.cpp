@@ -19,6 +19,7 @@
 #include "MapUpdater.h"
 #include "DelayExecutor.h"
 #include "Map.h"
+#include "MapManager.h"
 #include "Database/DatabaseEnv.h"
 
 #include <ace/Guard_T.h>
@@ -71,7 +72,10 @@ class MapUpdateRequest : public ACE_Method_Request
 
         virtual int call()
         {
+            ACE_thread_t const threadId = ACE_OS::thr_self();
+            m_updater.register_thread(threadId, m_map.GetId(),m_map.GetInstanceId());
             m_map.Update (m_diff);
+            m_updater.unregister_thread(threadId);
             m_updater.update_finished ();
             return 0;
         }
@@ -145,3 +149,45 @@ void MapUpdater::update_finished()
 
     m_condition.broadcast();
 }
+
+void MapUpdater::register_thread(ACE_thread_t const threadId, uint32 mapId, uint32 instanceId)
+{
+    ACE_GUARD(ACE_Thread_Mutex, guard, m_mutex);
+    MapID pair = MapID(mapId, instanceId);
+    m_threads.insert(std::make_pair(threadId, pair));
+    m_starttime.insert(std::make_pair(threadId, WorldTimer::getMSTime()));
+}
+
+void MapUpdater::unregister_thread(ACE_thread_t const threadId)
+{
+    ACE_GUARD(ACE_Thread_Mutex, guard, m_mutex);
+    m_threads.erase(threadId);
+    m_starttime.erase(threadId);
+}
+
+MapID const* MapUpdater::GetMapPairByThreadId(ACE_thread_t const threadId)
+{
+    if (!m_threads.empty())
+    {
+        ThreadMapMap::const_iterator itr = m_threads.find(threadId);
+        if (itr != m_threads.end())
+            return &itr->second;
+    }
+    return NULL;
+}
+
+void MapUpdater::FreezeDetect()
+{
+    ACE_GUARD(ACE_Thread_Mutex, guard, m_mutex);
+    if (!m_starttime.empty())
+    {
+        for (ThreadStartTimeMap::const_iterator itr = m_starttime.begin(); itr != m_starttime.end(); ++itr)
+        if (WorldTimer::getMSTime() - itr->second > 500) // TODO - in config
+        {
+            MapID const* mapPair = GetMapPairByThreadId(itr->first);
+            DEBUG_LOG("MapUpdater::FreezeDetect thread "I64FMT" possible freezed (is update map %u instance %u)",itr->first,mapPair->nMapId, mapPair->nInstanceId);
+            // TODO write internal detector and thread-killer
+        }
+    }
+}
+

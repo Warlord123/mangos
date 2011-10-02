@@ -23,8 +23,13 @@
 #include <ace/Condition_Thread_Mutex.h>
 
 #include "DelayExecutor.h"
+#include "Common.h"
 
 class Map;
+class MapID;
+
+typedef std::map<ACE_thread_t const, MapID> ThreadMapMap;
+typedef std::map<ACE_thread_t const, uint32/*MSTime*/>  ThreadStartTimeMap;
 
 class MapUpdater
 {
@@ -45,6 +50,9 @@ class MapUpdater
 
         bool activated();
 
+        MapID const* GetMapPairByThreadId(ACE_thread_t const threadId);
+        void FreezeDetect();
+
     private:
 
         DelayExecutor m_executor;
@@ -53,6 +61,12 @@ class MapUpdater
         size_t pending_requests;
 
         void update_finished();
+
+        void register_thread(ACE_thread_t const threadId, uint32 mapId, uint32 instanceId);
+        void unregister_thread(ACE_thread_t const threadId);
+
+        ThreadMapMap m_threads;
+        ThreadStartTimeMap m_starttime;
 };
 
 #endif //_MAP_UPDATER_H_INCLUDED
